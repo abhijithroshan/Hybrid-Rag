@@ -1,12 +1,43 @@
+# =========================================================
+# IMPORTS
+# =========================================================
+
+# kuzu -> graph database
+
 import kuzu
 
+# =========================================================
+# VECTOR DATABASE
+# =========================================================
+
+# Chroma is used as vector database
+
 from langchain_chroma import Chroma
+
+# =========================================================
+# EMBEDDING MODEL
+# =========================================================
+
+# HuggingFaceEmbeddings converts text into vectors
 
 from langchain_huggingface import (
     HuggingFaceEmbeddings
 )
 
+# =========================================================
+# OLLAMA MODEL
+# =========================================================
+
+# ChatOllama is used to connect local LLM
+
 from langchain_ollama import ChatOllama
+
+# =========================================================
+# MESSAGE TYPES
+# =========================================================
+
+# HumanMessage -> user prompt
+# SystemMessage -> system instructions
 
 from langchain_core.messages import (
     HumanMessage,
@@ -17,6 +48,16 @@ from langchain_core.messages import (
 # LOAD EMBEDDING MODEL
 # =========================================================
 
+# This embedding model converts:
+#
+# text -> vector embeddings
+#
+# Same model must be used during:
+# 1. ingestion
+# 2. retrieval
+#
+# Otherwise vector similarity will fail.
+
 embedding_model = HuggingFaceEmbeddings(
 
     model_name=
@@ -24,8 +65,13 @@ embedding_model = HuggingFaceEmbeddings(
 )
 
 # =========================================================
-# LOAD CHROMADB
+# LOAD VECTOR DATABASE
 # =========================================================
+
+# Load existing ChromaDB
+#
+# persist_directory:
+# folder where embeddings are stored
 
 vector_db = Chroma(
 
@@ -35,27 +81,52 @@ vector_db = Chroma(
 )
 
 # =========================================================
-# LOAD KUZU GRAPH DB
+# LOAD GRAPH DATABASE
 # =========================================================
 
+# Load Kuzu Graph DB
+
 graph_db = kuzu.Database("db/kuzu_graph")
+
+# Create graph connection
 
 conn = kuzu.Connection(graph_db)
 
 # =========================================================
-# LOAD OLLAMA MODEL
+# LOAD LLM MODEL
 # =========================================================
 
-# Better than tinyllama for grounding
+# phi3:mini is used because:
+#
+# ✅ faster
+# ✅ better grounding
+# ✅ less hallucination
+#
+# compared to tinyllama
+
 model = ChatOllama(model="phi3:mini")
 
 # =========================================================
-# GRAPH RETRIEVAL
+# GRAPH RETRIEVAL FUNCTION
 # =========================================================
+
+# This function retrieves:
+# graph relationships
+#
+# Example:
+#
+# Sundar Pichai -> CEO_of -> Google
 
 def get_graph_context(query):
 
+    # Stores graph results
     graph_context = ""
+
+    # =====================================================
+    # CYPHER QUERY
+    # =====================================================
+
+    # Fetch all graph relationships
 
     result = conn.execute("""
 
@@ -65,9 +136,20 @@ def get_graph_context(query):
 
     """)
 
+    # =====================================================
+    # PROCESS GRAPH RESULTS
+    # =====================================================
+
     while result.has_next():
 
+        # Get one row
         row = result.get_next()
+
+        # Convert graph relation into sentence
+        #
+        # Example:
+        #
+        # Sundar Pichai CEO_of Google
 
         sentence = (
             f"{row[0]} "
@@ -75,11 +157,15 @@ def get_graph_context(query):
             f"{row[2]}"
         )
 
-        # =========================================
+        # =================================================
         # SIMPLE RELEVANCE FILTERING
-        # =========================================
+        # =================================================
 
+        # Convert query to lowercase
         query_lower = query.lower()
+
+        # If any query word exists in sentence
+        # keep graph sentence
 
         if any(word in sentence.lower() for word in query_lower.split()):
 
@@ -91,7 +177,10 @@ def get_graph_context(query):
 # CHAT LOOP
 # =========================================================
 
+# Infinite loop keeps chatbot running
+
 print("\n🚀 HYBRID GRAPH RAG READY")
+
 print("Type 'exit' to quit.\n")
 
 while True:
@@ -102,20 +191,35 @@ while True:
 
     query = input("🔍 Ask Question: ")
 
+    # =====================================================
+    # EXIT CONDITION
+    # =====================================================
+
     if query.lower() == "exit":
 
         print("\n👋 Exiting Hybrid Graph RAG...")
+
         break
 
     # =====================================================
     # VECTOR RETRIEVAL
     # =====================================================
 
+    # similarity_search_with_score:
+    #
+    # Retrieves:
+    # 1. similar chunks
+    # 2. similarity score
+    #
+    # k=3 means:
+    # retrieve top 3 chunks
+
     results = vector_db.similarity_search_with_score(
         query,
         k=3
     )
 
+    # Stores filtered chunks
     relevant_docs = []
 
     # =====================================================
@@ -125,6 +229,9 @@ while True:
     for doc, score in results:
 
         # Lower score = better similarity
+        #
+        # score < 1.8 means:
+        # only reasonably relevant chunks allowed
 
         if score < 1.8:
 
@@ -133,6 +240,8 @@ while True:
     # =====================================================
     # VECTOR CONTEXT
     # =====================================================
+
+    # Combine retrieved chunks into one text
 
     vector_context = "\n".join([
 
@@ -145,11 +254,20 @@ while True:
     # GRAPH CONTEXT
     # =====================================================
 
+    # Retrieve graph relationships
+
     graph_context = get_graph_context(query)
 
     # =====================================================
     # COMBINED CONTEXT
     # =====================================================
+
+    # Combine:
+    #
+    # 1. Vector context
+    # 2. Graph context
+    #
+    # This is HYBRID RETRIEVAL
 
     combined_context = f"""
 
@@ -163,11 +281,20 @@ while True:
     # LIMIT CONTEXT SIZE
     # =====================================================
 
+    # Reduce prompt size
+    #
+    # Helps:
+    # ✅ faster generation
+    # ✅ less hallucination
+    # ✅ smaller context window
+
     combined_context = combined_context[:2000]
 
     # =====================================================
     # NO CONTEXT FOUND
     # =====================================================
+
+    # If no relevant information retrieved
 
     if not combined_context.strip():
 
@@ -182,6 +309,10 @@ while True:
     # =====================================================
     # FINAL PROMPT
     # =====================================================
+
+    # Prompt engineering
+    #
+    # Restricts hallucination
 
     final_prompt = f"""
 
@@ -204,15 +335,17 @@ Rules:
 """
 
     # =====================================================
-    # MESSAGES
+    # CREATE MESSAGES
     # =====================================================
 
     messages = [
 
+        # System instructions
         SystemMessage(
             content="You are a helpful assistant."
         ),
 
+        # User query + context
         HumanMessage(
             content=final_prompt
         )
@@ -221,6 +354,8 @@ Rules:
     # =====================================================
     # GENERATE RESPONSE
     # =====================================================
+
+    # Send prompt to LLM
 
     result = model.invoke(messages)
 
