@@ -1,19 +1,54 @@
+# =========================================================
+# IMPORTS
+# =========================================================
+
+# os -> used for file/folder handling
 import os
+
+# re -> used for regex pattern matching
 import re
+
+# kuzu -> graph database
 import kuzu
+
+# =========================================================
+# DOCUMENT LOADERS
+# =========================================================
+
+# TextLoader -> loads txt files
+# DirectoryLoader -> loads all files from docs folder
 
 from langchain_community.document_loaders import (
     TextLoader,
     DirectoryLoader
 )
 
+# =========================================================
+# SEMANTIC CHUNKER
+# =========================================================
+
+# SemanticChunker splits documents
+# based on meaning instead of fixed size
+
 from langchain_experimental.text_splitter import (
     SemanticChunker
 )
 
+# =========================================================
+# EMBEDDING MODEL
+# =========================================================
+
+# HuggingFaceEmbeddings converts text into vectors
+
 from langchain_huggingface import (
     HuggingFaceEmbeddings
 )
+
+# =========================================================
+# VECTOR DATABASE
+# =========================================================
+
+# Chroma stores embeddings
 
 from langchain_chroma import Chroma
 
@@ -21,12 +56,18 @@ from langchain_chroma import Chroma
 # CLEAN TEXT
 # =========================================================
 
+# This function cleans unnecessary text
+# from documents before processing
+
 def clean_text(text):
 
+    # Remove URLs
     text = re.sub(r"http\S+", "", text)
 
+    # Remove Wikipedia references like [1], [2]
     text = re.sub(r"\[\d+\]", "", text)
 
+    # Remove extra spaces/newlines
     text = re.sub(r"\s+", " ", text)
 
     return text.strip()
@@ -35,15 +76,25 @@ def clean_text(text):
 # ENTITY + RELATION EXTRACTION
 # =========================================================
 
+# This function extracts:
+# 1. Entities
+# 2. Relationships
+
+# Example:
+#
+# Sundar Pichai -> CEO_of -> Google
+
 def extract_entities_and_relations(text):
 
+    # Stores graph nodes
     entities = []
 
+    # Stores graph relationships
     relations = []
 
-    # =========================================
-    # COMPANY NAMES
-    # =========================================
+    # =====================================================
+    # COMPANY LIST
+    # =====================================================
 
     companies = [
         "Nvidia",
@@ -53,23 +104,30 @@ def extract_entities_and_relations(text):
         "Microsoft"
     ]
 
+    # This variable stores currently detected company
     detected_company = None
 
-    # =========================================
+    # =====================================================
     # DETECT COMPANY
-    # =========================================
+    # =====================================================
 
     for company in companies:
 
+        # Check if company exists in chunk
         if company.lower() in text.lower():
 
+            # Store entity
             entities.append((company, "Company"))
 
+            # Save detected company
             detected_company = company
 
-    # =========================================
-    # NVIDIA
-    # =========================================
+    # =====================================================
+    # NVIDIA RELATIONS
+    # =====================================================
+
+    # If Jensen Huang + Nvidia found
+    # create founder and CEO relationships
 
     if (
         "Jensen Huang" in text
@@ -86,9 +144,9 @@ def extract_entities_and_relations(text):
             ("Jensen Huang", "CEO_of", "Nvidia")
         )
 
-    # =========================================
-    # GOOGLE
-    # =========================================
+    # =====================================================
+    # GOOGLE RELATIONS
+    # =====================================================
 
     if (
         "Sundar Pichai" in text
@@ -123,9 +181,9 @@ def extract_entities_and_relations(text):
             ("Sergey Brin", "founder_of", "Google")
         )
 
-    # =========================================
-    # MICROSOFT
-    # =========================================
+    # =====================================================
+    # MICROSOFT RELATIONS
+    # =====================================================
 
     if (
         "Bill Gates" in text
@@ -138,9 +196,9 @@ def extract_entities_and_relations(text):
             ("Bill Gates", "founder_of", "Microsoft")
         )
 
-    # =========================================
-    # SPACEX
-    # =========================================
+    # =====================================================
+    # SPACEX RELATIONS
+    # =====================================================
 
     if (
         "Elon Musk" in text
@@ -153,9 +211,9 @@ def extract_entities_and_relations(text):
             ("Elon Musk", "founder_of", "SpaceX")
         )
 
-    # =========================================
-    # TESLA
-    # =========================================
+    # =====================================================
+    # TESLA RELATIONS
+    # =====================================================
 
     if (
         "Elon Musk" in text
@@ -168,9 +226,13 @@ def extract_entities_and_relations(text):
             ("Elon Musk", "CEO_of", "Tesla")
         )
 
-    # =========================================
+    # =====================================================
     # HEADQUARTERS EXTRACTION
-    # =========================================
+    # =====================================================
+
+    # Regex extracts:
+    #
+    # headquartered in California
 
     hq_match = re.search(
 
@@ -179,11 +241,20 @@ def extract_entities_and_relations(text):
         text
     )
 
+    # If headquarters found
     if hq_match and detected_company:
 
+        # Extract location
         location = hq_match.group(1).strip()
 
+        # Store location entity
         entities.append((location, "Location"))
+
+        # Create graph relationship
+        #
+        # Example:
+        #
+        # Nvidia -> headquartered_in -> California
 
         relations.append(
             (
@@ -193,14 +264,18 @@ def extract_entities_and_relations(text):
             )
         )
 
+    # Return entities + relationships
     return entities, relations
 
 # =========================================================
 # LOAD DOCUMENTS
 # =========================================================
 
+# Loads all txt files from docs folder
+
 def load_documents(docs_path="docs"):
 
+    # Load all txt files
     loader = DirectoryLoader(
 
         path=docs_path,
@@ -211,8 +286,10 @@ def load_documents(docs_path="docs"):
         TextLoader(path, encoding="utf-8")
     )
 
+    # Load documents
     documents = loader.load()
 
+    # Clean every document
     for doc in documents:
 
         doc.page_content = clean_text(
@@ -225,15 +302,27 @@ def load_documents(docs_path="docs"):
 # SEMANTIC CHUNKING
 # =========================================================
 
+# Splits documents into semantic chunks
+
 def split_documents(documents):
 
     print("\n🧠 Using Semantic Chunking...\n")
+
+    # =====================================================
+    # EMBEDDING MODEL
+    # =====================================================
 
     embedding_model = HuggingFaceEmbeddings(
 
         model_name=
         "sentence-transformers/all-MiniLM-L6-v2"
     )
+
+    # =====================================================
+    # SEMANTIC CHUNKER
+    # =====================================================
+
+    # Splits by meaning/topic
 
     text_splitter = SemanticChunker(
 
@@ -245,6 +334,10 @@ def split_documents(documents):
         breakpoint_threshold_amount=1
     )
 
+    # =====================================================
+    # CREATE CHUNKS
+    # =====================================================
+
     chunks = text_splitter.split_documents(
         documents
     )
@@ -254,17 +347,21 @@ def split_documents(documents):
     return chunks
 
 # =========================================================
-# CREATE VECTOR STORE
+# CREATE VECTOR DATABASE
 # =========================================================
+
+# Stores embeddings in ChromaDB
 
 def create_vector_store(chunks):
 
+    # Embedding model
     embedding_model = HuggingFaceEmbeddings(
 
         model_name=
         "sentence-transformers/all-MiniLM-L6-v2"
     )
 
+    # Store embeddings in Chroma
     vectorstore = Chroma.from_documents(
 
         documents=chunks,
@@ -277,30 +374,35 @@ def create_vector_store(chunks):
     return vectorstore
 
 # =========================================================
-# STORE GRAPH
+# STORE GRAPH DATA
 # =========================================================
+
+# Stores entities + relationships in KuzuDB
 
 def store_graph(chunks):
 
+    # Create graph database
     db = kuzu.Database("db/kuzu_graph")
 
+    # Create graph connection
     conn = kuzu.Connection(db)
 
+    # Process every chunk
     for chunk in chunks:
 
         text = chunk.page_content
 
-        # =====================================
+        # =================================================
         # EXTRACT ENTITIES + RELATIONS
-        # =====================================
+        # =================================================
 
         entities, relations = (
             extract_entities_and_relations(text)
         )
 
-        # =====================================
+        # =================================================
         # STORE ENTITIES
-        # =====================================
+        # =================================================
 
         for entity_name, entity_type in entities:
 
@@ -313,9 +415,9 @@ def store_graph(chunks):
 
             """)
 
-        # =====================================
+        # =================================================
         # STORE RELATIONS
-        # =====================================
+        # =================================================
 
         for source, relation, target in relations:
 
@@ -335,26 +437,48 @@ def store_graph(chunks):
     print("✅ Graph relationships stored")
 
 # =========================================================
-# MAIN
+# MAIN FUNCTION
 # =========================================================
 
 def main():
 
     print("🚀 HYBRID GRAPH RAG INGESTION")
 
+    # =====================================================
+    # LOAD DOCUMENTS
+    # =====================================================
+
     documents = load_documents()
 
     print(f"✅ Loaded {len(documents)} docs")
 
+    # =====================================================
+    # CREATE SEMANTIC CHUNKS
+    # =====================================================
+
     chunks = split_documents(documents)
+
+    # =====================================================
+    # STORE IN VECTOR DB
+    # =====================================================
 
     create_vector_store(chunks)
 
     print("✅ Stored embeddings in ChromaDB")
 
+    # =====================================================
+    # STORE IN GRAPH DB
+    # =====================================================
+
     store_graph(chunks)
 
     print("✅ Stored graph in KuzuDB")
+
+# =========================================================
+# ENTRY POINT
+# =========================================================
+
+# Program starts here
 
 if __name__ == "__main__":
 
